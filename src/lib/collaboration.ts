@@ -25,9 +25,8 @@ export async function updatePageContentRealtime(
   baseUrl: string,
 ): Promise<void> {
   console.error(`Starting realtime update for page ${pageId}`);
-  console.error(
-    `Token prefix: ${collabToken ? collabToken.substring(0, 5) : "NONE"}...`,
-  );
+  // Never log the token itself — not even a prefix. Presence is enough to debug.
+  console.error(`Collab token: ${collabToken ? "present" : "MISSING"}`);
 
   // 1. Convert Markdown to HTML
   const html = await marked.parse(markdownContent);
@@ -63,13 +62,18 @@ export async function updatePageContentRealtime(
   console.error(`Connecting to WebSocket: ${wsUrl}`);
 
   return new Promise<void>((resolve, reject) => {
+    // Declared before the timer: the timeout callback closes over it, and a
+    // synchronous throw from the provider constructor must not leave the timer
+    // pointing at an uninitialized binding.
+    let provider: HocuspocusProvider | undefined;
+
     // Safety timeout
     const timer = setTimeout(() => {
-      if (provider) provider.destroy();
+      provider?.destroy();
       reject(new Error("Connection timeout to collaboration server"));
     }, 25000);
 
-    const provider = new HocuspocusProvider({
+    provider = new HocuspocusProvider({
       url: wsUrl,
       name: `page.${pageId}`,
       document: ydoc,
@@ -119,18 +123,25 @@ export async function updatePageContentRealtime(
           setTimeout(() => {
             try {
               console.error(`Closing background connection for page ${pageId}`);
-              provider.destroy();
-            } catch (err) {}
+              provider?.destroy();
+            } catch (err) {
+              // Teardown is best-effort: the doc is already synced and the tool
+              // has returned, so surface the reason without failing anything.
+              console.error(
+                `Failed to close background connection for page ${pageId}:`,
+                err,
+              );
+            }
           }, 15000);
         } catch (e) {
           clearTimeout(timer);
-          provider.destroy();
+          provider?.destroy();
           reject(e);
         }
       },
       onAuthenticationFailed: () => {
         clearTimeout(timer);
-        provider.destroy();
+        provider?.destroy();
         reject(new Error("Authentication failed for collaboration connection"));
       },
     });

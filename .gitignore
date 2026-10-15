@@ -1,5 +1,6 @@
 node_modules/
 build/
+build-test/
 .env
 *.log
 .DS_Store

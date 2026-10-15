@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createServer } from "http";
 import FormData from "form-data";
 import axios, { AxiosInstance } from "axios";
 import { z } from "zod";
@@ -161,7 +162,7 @@ class DocmostClient {
     try {
       subpages = await this.listSidebarPages(resultData.spaceId, pageId);
     } catch (e: any) {
-      console.warn("Failed to fetch subpages:", e);
+      console.error("Failed to fetch subpages:", e);
     }
 
     // Resolve subpages if the placeholder exists
@@ -200,9 +201,17 @@ class DocmostClient {
     await this.ensureAuthenticated();
 
     if (parentPageId) {
+      // Probe metadata only. getPage() would also convert the whole document
+      // from ProseMirror and fetch the sidebar, so it could fail for reasons
+      // unrelated to whether the parent actually exists.
       try {
-        await this.getPage(parentPageId);
-      } catch (e) {
+        const probe = await this.client.post("/pages/info", {
+          pageId: parentPageId,
+        });
+        if (!probe.data?.data?.id) {
+          throw new Error("empty response from /pages/info");
+        }
+      } catch {
         throw new Error(`Parent page with ID ${parentPageId} not found.`);
       }
     }
@@ -260,11 +269,10 @@ class DocmostClient {
         "Failed to update page content via realtime collaboration:",
         error,
       );
-      const tokenPreview = collabToken
-        ? collabToken.substring(0, 15) + "..."
-        : "null";
+      // Report whether a token was obtained, never any part of it: this
+      // message travels back to the MCP client as the tool result.
       throw new Error(
-        `Failed to update page content: ${error.message} (Token: ${tokenPreview})`,
+        `Failed to update page content: ${error.message} (Collab token was ${collabToken ? "present" : "missing"})`,
       );
     }
 
@@ -544,9 +552,43 @@ server.registerTool(
   },
 );
 
+
 async function run() {
-  const transport = new StdioServerTransport();
+  // Guard against a malformed PORT: parseInt("abc") is NaN, and listen(NaN)
+  // silently binds a random port instead of failing loudly.
+  const rawPort = process.env.PORT || "8088";
+  const PORT = Number.parseInt(rawPort, 10);
+  if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+    console.error(
+      `Invalid PORT value: ${JSON.stringify(rawPort)} (expected 1-65535)`,
+    );
+    process.exit(1);
+  }
+  const transport = new StreamableHTTPServerTransport();
   await server.connect(transport);
+
+  const httpServer = createServer(async (req, res) => {
+    if (req.url === "/health" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "ok" }));
+      return;
+    }
+
+
+    try {
+      await transport.handleRequest(req, res);
+    } catch (err) {
+      console.error("MCP transport error:", (err as Error).message);
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Internal server error" }));
+      }
+    }
+  });
+
+  httpServer.listen(PORT, () => {
+    console.error("Docmost MCP server listening on port " + PORT);
+  });
 }
 
 run().catch((error) => {

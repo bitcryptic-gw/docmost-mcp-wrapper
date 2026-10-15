@@ -21,8 +21,10 @@ export async function getCollabToken(
     return response.data.data?.token || response.data.token;
   } catch (error) {
     if (axios.isAxiosError(error)) {
+      // Status only. The response body of an auth endpoint can echo back the
+      // submitted identity, and this message is surfaced to the MCP client.
       throw new Error(
-        `Failed to get collab token: ${error.response?.status} ${error.response?.statusText} - ${JSON.stringify(error.response?.data)}`,
+        `Failed to get collab token: ${error.response?.status} ${error.response?.statusText}`,
       );
     }
     throw error;
@@ -53,9 +55,14 @@ export async function performLogin(
     const token = authCookie.split(";")[0].split("=")[1];
     return token;
   } catch (error: any) {
+    // Log the status, not the response body: Docmost echoes the submitted
+    // email back on some auth failures, and this entrypoint's contract is that
+    // no credential material reaches the logs.
     console.error(
       "Login failed:",
-      axios.isAxiosError(error) ? error.response?.data : error.message,
+      axios.isAxiosError(error)
+        ? `${error.response?.status ?? "network error"} ${error.response?.statusText ?? ""}`.trim()
+        : error.message,
     );
     throw error;
   }

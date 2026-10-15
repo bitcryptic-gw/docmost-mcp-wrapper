@@ -1,0 +1,9 @@
+# Normalize text files in the repository, then force LF where it matters.
+* text=auto
+
+# The entrypoint is executed by /bin/sh inside the container. With a CRLF line
+# ending, `set -e` becomes `set -e\r`, which is an invalid option: the shell
+# exits at line 2 and the server never starts. This bites local `docker build`
+# runs on Windows checkouts, where core.autocrlf rewrites LF to CRLF.
+*.sh text eol=lf
+Dockerfile text eol=lf

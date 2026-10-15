@@ -24,7 +24,7 @@ A Model Context Protocol (MCP) server for [Docmost](https://docmost.com/), enabl
 
 - **Automatic Markdown Conversion**: Page content is automatically converted from Docmost's internal ProseMirror/TipTap JSON format to clean Markdown for easy agent consumption. Supports all Docmost extensions including callouts, task lists, math blocks, embeds, and more.
 - **Smart Import API**: Uses Docmost's import API to ensure clean Markdown-to-ProseMirror conversion when creating pages.
-- **Child Preservation**: The `update_page` tool creates a new page ID but effectively simulates an in-place update by reparenting existing child pages to the new version.
+- **ID-Preserving Updates**: the `update_page` tool rewrites content in place over Docmost's realtime collaboration socket, so the page ID, hierarchy and revision history survive an edit.
 - **Pagination Support**: Automatically handles pagination for large datasets (spaces, pages, groups).
 - **Filtered Responses**: API responses are filtered to include only relevant information, optimizing data transfer for agents.
 
@@ -43,25 +43,30 @@ This server requires the following environment variables to be set:
 - `DOCMOST_EMAIL`: The email address for authentication.
 - `DOCMOST_PASSWORD`: The password for authentication.
 
-## usage with Claude Desktop / generic MCP Client
+## Usage with Claude Desktop / generic MCP Client
 
-Add the following to your MCP configuration (e.g. `claude_desktop_config.json`):
+This fork serves **Streamable HTTP**, not stdio. Start the server first — it holds the Docmost credentials in its own environment:
+
+```bash
+DOCMOST_API_URL=http://localhost:3000/api \
+DOCMOST_EMAIL=test@docmost.com \
+DOCMOST_PASSWORD=test \
+node build/index.js
+```
+
+It listens on `PORT` (default `8088`) and answers `GET /health` as a liveness check. Then point the MCP client at the URL:
 
 ```json
 {
   "mcpServers": {
     "docmost-local": {
-      "command": "node",
-      "args": ["./build/index.js"],
-      "env": {
-        "DOCMOST_API_URL": "http://localhost:3000/api",
-        "DOCMOST_EMAIL": "test@docmost.com",
-        "DOCMOST_PASSWORD": "test"
-      }
+      "url": "http://localhost:8088/mcp"
     }
   }
 }
 ```
+
+Copy `mcp_config_example.json` if you want a ready-made config. The client-side config carries no credentials — they never leave the server process.
 
 ## Development
 

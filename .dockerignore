@@ -1,0 +1,25 @@
+# Keep the build context small and secret-free. Nothing here should ever
+# reach the daemon: the Dockerfile COPYs explicit paths only, but everything in
+# the context is uploaded and can persist in the builder cache.
+node_modules
+build
+build-test
+
+# Secrets — file-mounted credentials, local overrides, live client configs.
+.env
+.env.*
+*.env
+secrets
+/run/secrets
+mcp_config.json
+
+# VCS, CI and editor noise
+.git
+.github
+.gitignore
+.vscode
+.idea
+
+# Docs and templates are not needed to build the image
+*.md
+docmost-mcp-wrapper.xml

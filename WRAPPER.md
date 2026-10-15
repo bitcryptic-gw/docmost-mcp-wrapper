@@ -11,7 +11,7 @@ Upstream `docmost-mcp` reads credentials directly from environment variables (`D
 3. Never logs secret values, even on auth failure
 4. Exports secrets into the child process environment only (transient, not visible in `docker inspect`)
 
-Additionally, upstream `docmost-mcp` speaks **stdio transport only** — it must be spawned as a local subprocess by an MCP client. This wrapper includes [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy) to bridge stdio to Streamable HTTP/SSE, making it reachable by remote AI agents over a Tailscale tailnet.
+Additionally, upstream `docmost-mcp` speaks **stdio transport only** — it must be spawned as a local subprocess by an MCP client. This fork replaces that with a **native Streamable HTTP transport** (no `mcp-proxy`, no Python runtime), making the server reachable by remote AI agents over a Tailscale tailnet.
 
 ## Quick start
 
@@ -68,7 +68,7 @@ Once deployed, an agent's MCP client config points at the Tailscale hostname:
 }
 ```
 
-The path `/mcp` serves Streamable HTTP transport. The SSE endpoint is also available at `/sse`.
+The path `/mcp` serves the Streamable HTTP transport. Every path except `GET /health` is handed to the MCP transport, so the client URL is a convention rather than an enforced route — pick `/mcp` and point clients at it. There is no separate `/sse` endpoint in this fork.
 
 No bearer token is needed at the HTTP layer — auth happens at the Docmost API layer via the bot account credentials loaded from file mounts. Network-layer access control is enforced by Tailscale ACLs.
 
@@ -85,7 +85,8 @@ docker build -t bitcryptic/docmost-mcp-wrapper .
 | `DOCMOST_API_URL` | Yes | — | Full URL to Docmost API (e.g. `https://docmost.pygmy-bramble.ts.net/api`) |
 | `DOCMOST_EMAIL_FILE` | Yes | `/run/secrets/docmost_email` | Path to file containing bot email |
 | `DOCMOST_PASSWORD_FILE` | Yes | `/run/secrets/docmost_password` | Path to file containing bot password |
-| `MCP_PROXY_PORT` | No | `8088` | Port mcp-proxy listens on inside the container |
+| `MCP_PROXY_PORT` | No | `8088` | **Deprecated/ignored.** Use `PORT` — this variable is read by neither the entrypoint nor the server |
+| `PORT` | No | `8088` | Port the Node server listens on inside the container. Invalid values abort startup |
 
 ## Security design
 
@@ -104,4 +105,11 @@ git fetch upstream
 git merge upstream/main
 ```
 
-Only `src/`, `package.json`, `package-lock.json`, and `tsconfig.json` are upstream-owned. Do not modify those files in this repo.
+`src/`, `package.json`, `package-lock.json`, and `tsconfig.json` originate upstream. This fork **does** carry local patches to them — the Streamable HTTP transport, the file-based secret validation path, and the token-redaction fixes — so the rule is not "never touch these files", it is **keep patches small, isolated and called out in the commit body** so that upstream merges stay mechanical:
+
+- Never reformat or restyle untouched upstream code.
+- Put new logic in `src/lib/` as a new module instead of growing `src/index.ts`.
+- Land new build/test tooling in new files (`tsconfig.test.json`, `test/`) rather than editing `tsconfig.json`.
+- Say in the commit body that a change touches upstream-derived code.
+
+The wrapper layer (`Dockerfile`, `docker-entrypoint.sh`, `docmost-mcp-wrapper.xml`, `WRAPPER.md`, `README.md`, `.github/`, `AGENTS.md`) is entirely ours and free to change.
